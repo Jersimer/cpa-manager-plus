@@ -27,3 +27,12 @@
 - API 地址解析、错误适配、兼容旧服务标识等逻辑只能有一个入口。
 - 不在迁移中做无关 UI 重设计。
 - 每阶段必须通过类型检查、相关单测和构建验证。
+
+## 当前迁移状态
+
+- `dashboard`: 已迁入 `src/features/dashboard`，`src/pages/DashboardPage.tsx` 保留路由薄壳。
+- `aiProviders`: 列表页、编辑页、共享样式和路由参数工具已迁入 `src/features/aiProviders`。
+- `authFiles`: 主页面、OAuth 子页面、共享样式和测试已迁入 `src/features/authFiles`。
+- `monitoring`: 监控中心、Codex 巡检页面和共享样式已迁入 `src/features/monitoring`。
+- `quota`: 页面和共享样式已迁入 `src/features/quota`。
+- `config`: 配置页面已迁入 `src/features/config`，配置 section 解析已迁入 `src/entities/config`。
