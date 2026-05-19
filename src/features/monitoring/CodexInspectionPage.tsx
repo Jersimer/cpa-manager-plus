@@ -1,7 +1,6 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
-import type { TFunction } from 'i18next';
 import { Button } from '@/components/ui/Button';
 import { Card } from '@/components/ui/Card';
 import { Input } from '@/components/ui/Input';
@@ -44,59 +43,32 @@ import {
   type CodexInspectionResultItem,
   type CodexInspectionRunResult,
   type CodexInspectionSession,
-  type CodexInspectionStoredActionFilter,
-  type CodexInspectionStoredLogEntry,
 } from '@/features/monitoring/codexInspection';
+import { Panel, SettingsSection } from '@/features/monitoring/components/CodexInspectionPanels';
+import {
+  ACTION_FILTERS,
+  countActions,
+  createCompletedProgressSnapshot,
+  createIdleProgressSnapshot,
+  filterByAction,
+  formatActionLabel,
+  formatAutoActionModeLabel,
+  formatCurrentStateLabel,
+  formatPercent,
+  formatTime,
+  formatTimestamp,
+  toSettingsDraft,
+  type ActionFilter,
+  type ExecutionTriggerSource,
+  type InspectionLogEntry,
+  type InspectionSettingsDraft,
+  type InspectionSettingsDraftField,
+  type RunStatus,
+  type StatusTone,
+  type SummaryCard,
+} from '@/features/monitoring/model/codexInspectionPresentation';
 import { useAuthStore, useConfigStore, useNotificationStore } from '@/stores';
 import styles from './CodexInspectionPage.module.scss';
-
-type RunStatus = 'idle' | 'running' | 'paused' | 'success' | 'error';
-
-type ActionFilter = CodexInspectionStoredActionFilter;
-
-type StatusTone = 'idle' | 'info' | 'good' | 'warn' | 'bad';
-
-type InspectionLogEntry = CodexInspectionStoredLogEntry;
-
-type ExecutionTriggerSource = 'manual' | 'auto';
-
-type SummaryCard = {
-  key: string;
-  label: string;
-  value: string;
-  meta: string;
-  tone?: StatusTone;
-};
-
-type InspectionSettingsDraft = {
-  targetType: string;
-  workers: string;
-  deleteWorkers: string;
-  timeout: string;
-  retries: string;
-  userAgent: string;
-  usedPercentThreshold: string;
-  sampleSize: string;
-  autoActionMode: CodexInspectionAutoActionMode;
-};
-
-type InspectionSettingsDraftField = Exclude<keyof InspectionSettingsDraft, 'autoActionMode'>;
-
-type PanelProps = {
-  title: string;
-  subtitle?: string;
-  extra?: ReactNode;
-  children: ReactNode;
-  className?: string;
-};
-
-type SettingsSectionProps = {
-  icon: ReactNode;
-  title: string;
-  children: ReactNode;
-};
-
-const ACTION_FILTERS: ActionFilter[] = ['all', 'delete', 'disable', 'enable'];
 
 const actionToneClass: Record<CodexInspectionAction, string> = {
   keep: styles.actionKeep,
@@ -111,147 +83,6 @@ const levelClassMap: Record<CodexInspectionLogLevel, string> = {
   warning: styles.logWarning,
   error: styles.logError,
 };
-
-const formatTimestamp = (value: number, locale: string) => new Date(value).toLocaleString(locale);
-const formatTime = (value: number, locale: string) => new Date(value).toLocaleTimeString(locale);
-
-const formatPercent = (value: number | null) => (value === null ? '--' : `${value.toFixed(1)}%`);
-
-const toSettingsDraft = (settings: CodexInspectionConfigurableSettings): InspectionSettingsDraft => ({
-  targetType: settings.targetType,
-  workers: String(settings.workers),
-  deleteWorkers: String(settings.deleteWorkers),
-  timeout: String(settings.timeout),
-  retries: String(settings.retries),
-  userAgent: settings.userAgent,
-  usedPercentThreshold: String(settings.usedPercentThreshold),
-  sampleSize: String(settings.sampleSize),
-  autoActionMode: settings.autoActionMode,
-});
-
-const formatActionLabel = (action: CodexInspectionAction, t: TFunction) => {
-  switch (action) {
-    case 'delete':
-      return t('monitoring.codex_inspection_action_delete');
-    case 'disable':
-      return t('monitoring.codex_inspection_action_disable');
-    case 'enable':
-      return t('monitoring.codex_inspection_action_enable');
-    case 'keep':
-    default:
-      return t('monitoring.codex_inspection_action_keep');
-  }
-};
-
-const formatCurrentStateLabel = (item: CodexInspectionResultItem, t: TFunction) => {
-  if (item.disabled) return t('monitoring.codex_inspection_state_disabled');
-  return t('monitoring.codex_inspection_state_enabled');
-};
-
-const countActions = (items: CodexInspectionResultItem[]) => {
-  const summary = {
-    delete: 0,
-    disable: 0,
-    enable: 0,
-  };
-
-  items.forEach((item) => {
-    if (item.action === 'delete') summary.delete += 1;
-    if (item.action === 'disable') summary.disable += 1;
-    if (item.action === 'enable') summary.enable += 1;
-  });
-
-  return summary;
-};
-
-const createIdleProgressSnapshot = (): CodexInspectionProgressSnapshot => ({
-  total: 0,
-  completed: 0,
-  inFlight: 0,
-  pending: 0,
-  percent: 0,
-  status: 'idle',
-  summary: {
-    totalFiles: 0,
-    probeSetCount: 0,
-    sampledCount: 0,
-    deleteCount: 0,
-    disableCount: 0,
-    enableCount: 0,
-    keepCount: 0,
-  },
-  startedAt: Date.now(),
-  updatedAt: Date.now(),
-});
-
-const createCompletedProgressSnapshot = (
-  result: CodexInspectionRunResult
-): CodexInspectionProgressSnapshot => {
-  const total = Math.max(0, result.summary.sampledCount || result.results.length);
-  return {
-    total,
-    completed: total,
-    inFlight: 0,
-    pending: 0,
-    percent: total > 0 ? 100 : 0,
-    status: 'completed',
-    summary: {
-      totalFiles: result.summary.totalFiles,
-      probeSetCount: result.summary.probeSetCount,
-      sampledCount: result.summary.sampledCount,
-      deleteCount: result.summary.deleteCount,
-      disableCount: result.summary.disableCount,
-      enableCount: result.summary.enableCount,
-      keepCount: result.summary.keepCount,
-    },
-    startedAt: result.startedAt,
-    updatedAt: result.finishedAt || Date.now(),
-  };
-};
-
-const filterByAction = (items: CodexInspectionResultItem[], filter: ActionFilter) => {
-  if (filter === 'all') return items;
-  return items.filter((item) => item.action === filter);
-};
-
-const formatAutoActionModeLabel = (mode: CodexInspectionAutoActionMode, t: TFunction) => {
-  switch (mode) {
-    case 'delete':
-      return t('monitoring.codex_inspection_settings_auto_action_mode_delete');
-    case 'disable':
-      return t('monitoring.codex_inspection_settings_auto_action_mode_disable');
-    case 'none':
-    default:
-      return t('monitoring.codex_inspection_settings_auto_action_mode_none');
-  }
-};
-
-function Panel({ title, subtitle, extra, children, className }: PanelProps) {
-  return (
-    <Card className={[styles.panel, className].filter(Boolean).join(' ')}>
-      <div className={styles.panelHeader}>
-        <div className={styles.panelHeading}>
-          <h2 className={styles.panelTitle}>{title}</h2>
-          {subtitle ? <p className={styles.panelSubtitle}>{subtitle}</p> : null}
-        </div>
-        {extra ? <div className={styles.panelExtra}>{extra}</div> : null}
-      </div>
-      {children}
-    </Card>
-  );
-}
-
-function SettingsSection({ icon, title, children }: SettingsSectionProps) {
-  return (
-    <section className={styles.settingsSectionCard}>
-      <header className={styles.settingsSectionHeader}>
-        <span className={styles.settingsSectionIcon}>{icon}</span>
-        <span>{title}</span>
-      </header>
-      {children}
-    </section>
-  );
-}
 
 export function CodexInspectionPage() {
   const { t, i18n } = useTranslation();
