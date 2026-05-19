@@ -12,13 +12,6 @@ import { useTranslation } from 'react-i18next';
 import type { TFunction } from 'i18next';
 import { LoadingSpinner } from '@/components/ui/LoadingSpinner';
 import {
-  IconChartLine,
-  IconDownload,
-  IconExternalLink,
-  IconFileText,
-  IconSettings,
-} from '@/components/ui/icons';
-import {
   buildAccountRows,
   buildApiKeyRows,
   buildRealtimeMonitorRows,
@@ -58,6 +51,7 @@ import {
 } from '@/features/monitoring/components/AccountOverviewCard';
 import { AccountOverviewPanel } from '@/features/monitoring/components/AccountOverviewPanel';
 import { ApiKeySummaryPanel } from '@/features/monitoring/components/ApiKeySummaryPanel';
+import { MonitoringActionBar } from '@/features/monitoring/components/MonitoringActionBar';
 import { MonitoringCustomRangeModal } from '@/features/monitoring/components/MonitoringCustomRangeModal';
 import { MonitoringFiltersPanel } from '@/features/monitoring/components/MonitoringFiltersPanel';
 import { MonitoringPriceModal } from '@/features/monitoring/components/MonitoringPriceModal';
@@ -1503,68 +1497,18 @@ export function MonitoringCenterPage() {
         </div>
       ) : null}
 
-      <section className={styles.actionBar} aria-label={t('common.action')}>
-        <div className={styles.actionGroup}>
-          <button
-            type="button"
-            className={`${styles.actionButton} ${styles.actionButtonPrimary}`}
-            onClick={() => void handleUsageExport()}
-            disabled={!usageTransferAvailable || usageExporting || usageImporting}
-            title={
-              usageTransferAvailable
-                ? t('usage_stats.export')
-                : t('usage_stats.import_export_requires_usage_service')
-            }
-          >
-            <IconDownload size={16} />
-            <span>{usageExporting ? t('common.loading') : t('usage_stats.export')}</span>
-          </button>
-          <button
-            type="button"
-            className={`${styles.actionButton} ${styles.actionButtonPrimary}`}
-            onClick={handleUsageImportClick}
-            disabled={!usageTransferAvailable || usageExporting || usageImporting}
-            title={
-              usageTransferAvailable
-                ? t('usage_stats.import')
-                : t('usage_stats.import_export_requires_usage_service')
-            }
-          >
-            <IconFileText size={16} />
-            <span>{usageImporting ? t('common.loading') : t('usage_stats.import')}</span>
-          </button>
-          <button
-            type="button"
-            className={styles.actionButton}
-            onClick={() => setIsPriceModalOpen(true)}
-          >
-            <IconSettings size={16} />
-            <span>{t('usage_stats.model_price_settings')}</span>
-          </button>
-          <input
-            ref={usageImportInputRef}
-            type="file"
-            accept=".json,.jsonl,.ndjson,.txt,application/json,application/x-ndjson,text/plain"
-            style={{ display: 'none' }}
-            onChange={handleUsageImportChange}
-          />
-        </div>
-
-        <div className={`${styles.actionGroup} ${styles.actionGroupNav}`}>
-          <Link to="/codex-inspection" className={`${styles.actionButton} ${styles.quickNavLink}`}>
-            <IconChartLine size={16} />
-            <span>{t('monitoring.codex_inspection_entry')}</span>
-            <IconExternalLink size={14} />
-          </Link>
-          {config?.loggingToFile ? (
-            <Link to="/logs" className={`${styles.actionButton} ${styles.quickNavLink}`}>
-              <IconFileText size={16} />
-              <span>{t('monitoring.open_logs')}</span>
-              <IconExternalLink size={14} />
-            </Link>
-          ) : null}
-        </div>
-      </section>
+      <MonitoringActionBar
+        usageTransferAvailable={usageTransferAvailable}
+        usageExporting={usageExporting}
+        usageImporting={usageImporting}
+        loggingToFile={Boolean(config?.loggingToFile)}
+        usageImportInputRef={usageImportInputRef}
+        t={t}
+        onUsageExport={handleUsageExport}
+        onUsageImportClick={handleUsageImportClick}
+        onUsageImportChange={handleUsageImportChange}
+        onOpenPriceModal={() => setIsPriceModalOpen(true)}
+      />
 
       <MonitoringFiltersPanel
         timeRange={timeRange}
