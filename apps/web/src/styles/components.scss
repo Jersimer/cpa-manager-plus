@@ -217,6 +217,29 @@ textarea {
   }
 }
 
+.input-wrapper {
+  position: relative;
+}
+
+.input.input-with-right-element {
+  padding-right: 48px;
+}
+
+.input-right-element {
+  position: absolute;
+  top: 50%;
+  right: 8px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transform: translateY(-50%);
+}
+
+.input[type='password']::-ms-reveal,
+.input[type='password']::-ms-clear {
+  display: none;
+}
+
 .form-group {
   display: flex;
   flex-direction: column;
