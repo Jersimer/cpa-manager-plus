@@ -177,6 +177,37 @@ export function shouldShowMissingManagerAdminKeyError({
   return trigger === 'manual' || !hasManagerConfig;
 }
 
+// eslint-disable-next-line react-refresh/only-export-components
+export function resolveManagerCPAConnection({
+  panelHostedByUsageService,
+  managerConfig,
+  currentCPAApiBase,
+  submittedCPAManagementKey,
+  externalManagementKey,
+}: {
+  panelHostedByUsageService: boolean | null;
+  managerConfig: ManagerConfig | null;
+  currentCPAApiBase: string;
+  submittedCPAManagementKey: string;
+  externalManagementKey: string;
+}): ManagerConfig['cpaConnection'] {
+  const trimmedSubmittedKey = submittedCPAManagementKey.trim();
+  const savedConnection = managerConfig?.cpaConnection;
+
+  if (panelHostedByUsageService === true) {
+    return {
+      ...(savedConnection ?? {}),
+      cpaBaseUrl: savedConnection?.cpaBaseUrl || '',
+      managementKey: trimmedSubmittedKey || savedConnection?.managementKey || '',
+    };
+  }
+
+  return {
+    cpaBaseUrl: currentCPAApiBase,
+    managementKey: trimmedSubmittedKey || externalManagementKey.trim(),
+  };
+}
+
 function isManagerAuthErrorCode(code: string): boolean {
   return code === 'invalid_admin_key' || code === 'invalid_management_key';
 }
@@ -243,6 +274,7 @@ export function ConfigPage() {
   const [managerDirty, setManagerDirty] = useState(false);
   const [managerServiceBase, setManagerServiceBase] = useState('');
   const [managerAdminKey, setManagerAdminKey] = useState('');
+  const [managerCPAManagementKey, setManagerCPAManagementKey] = useState('');
   const [verifiedManagerAdminKey, setVerifiedManagerAdminKey] = useState('');
   const [managerRequestMonitoringEnabled, setManagerRequestMonitoringEnabled] = useState(true);
   const [panelHostedByUsageService, setPanelHostedByUsageService] = useState<boolean | null>(null);
@@ -460,6 +492,7 @@ export function ConfigPage() {
       setManagerPollIntervalMs(String(collector.pollIntervalMs || MANAGER_COLLECTOR_DEFAULT.pollIntervalMs));
       setManagerBatchSize(String(collector.batchSize || MANAGER_COLLECTOR_DEFAULT.batchSize));
       setManagerQueryLimit(String(collector.queryLimit || MANAGER_COLLECTOR_DEFAULT.queryLimit));
+      setManagerCPAManagementKey('');
       setManagerDirty(false);
     },
     [managerServiceBase]
@@ -666,16 +699,13 @@ export function ConfigPage() {
           showNotification(t('config_management.manager.poll_interval_retention_error'), 'error');
           return;
         }
-        const cpaConnection = isEmbeddedUsageService
-          ? {
-              ...(managerConfig?.cpaConnection ?? {}),
-              cpaBaseUrl: managerConfig?.cpaConnection?.cpaBaseUrl || apiBase,
-              managementKey: managerConfig?.cpaConnection?.managementKey || managementKey,
-            }
-          : {
-              cpaBaseUrl: currentCPAApiBase,
-              managementKey,
-            };
+        const cpaConnection = resolveManagerCPAConnection({
+          panelHostedByUsageService,
+          managerConfig,
+          currentCPAApiBase,
+          submittedCPAManagementKey: managerCPAManagementKey,
+          externalManagementKey: managementKey,
+        });
         const nextConfig: ManagerConfig = {
           ...(managerConfig ?? {
             cpaConnection,
@@ -706,6 +736,7 @@ export function ConfigPage() {
         );
         applyManagerConfigResponse(response, serviceBase);
         setManagerAdminKey('');
+        setManagerCPAManagementKey('');
         managerAdminKeyRef.current = '';
         setVerifiedManagerAdminKey('');
         setUsageServiceConfig(
@@ -1224,11 +1255,16 @@ export function ConfigPage() {
           {activeTab === 'manager' ? (
             <ManagerConfigPanel
               managerLoading={managerLoading}
+              managerSaving={managerSaving}
               panelHostedByUsageService={panelHostedByUsageService}
               detectedPanelBase={detectedPanelBase}
               managerRuntimeModeLabel={managerRuntimeModeLabel}
               managerServiceBase={managerServiceBase}
               managerAdminKey={managerAdminKey}
+              managerCPAManagementKey={managerCPAManagementKey}
+              managerHasBoundCPAManagementKey={Boolean(
+                managerConfig?.cpaConnection?.managementKey
+              )}
               currentCPAApiBase={currentCPAApiBase}
               managerBoundCPABase={managerBoundCPABase}
               managerBindingStatus={managerBindingStatus}
@@ -1259,6 +1295,10 @@ export function ConfigPage() {
               onManagerAdminKeyChange={(value) => {
                 setManagerAdminKey(value);
                 setManagerError('');
+              }}
+              onManagerCPAManagementKeyChange={(value) => {
+                setManagerCPAManagementKey(value);
+                setManagerFieldDirty();
               }}
               onRequestMonitoringChange={(value) => {
                 setManagerRequestMonitoringEnabled(value);
