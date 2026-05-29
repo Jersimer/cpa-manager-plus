@@ -313,6 +313,82 @@ func TestRunAutoActionSkipsDuplicateFileNameResults(t *testing.T) {
 	}
 }
 
+func TestRunAutoActionSkipsMixedActionsInSameFile(t *testing.T) {
+	var deleteCalled bool
+	var patchCalled bool
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.URL.Path == "/auth-files" && r.Method == http.MethodGet:
+			_, _ = w.Write([]byte(`{"files":[{"name":"auth-a.json","auth_index":"auth-1","provider":"codex","account":"alice@example.com","disabled":true,"status":"ok","state":"ready"},{"name":"auth-a.json","auth_index":"auth-2","provider":"codex","account":"bob@example.com","status":"ok","state":"ready"}]}`))
+		case r.URL.Path == "/api-call" && r.Method == http.MethodPost:
+			var payload struct {
+				AuthIndex string `json:"authIndex"`
+			}
+			if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+				t.Fatalf("decode api-call payload: %v", err)
+			}
+			switch payload.AuthIndex {
+			case "auth-1":
+				_, _ = w.Write([]byte(`{"status_code":200,"body":{"ok":true}}`))
+			case "auth-2":
+				_, _ = w.Write([]byte(`{"status_code":401,"body":{"message":"Your authentication token has been invalidated."}}`))
+			default:
+				t.Fatalf("unexpected authIndex %q", payload.AuthIndex)
+			}
+		case strings.HasPrefix(r.URL.Path, "/auth-files") && r.Method == http.MethodDelete:
+			deleteCalled = true
+			_, _ = w.Write([]byte(`{"ok":true}`))
+		case strings.HasPrefix(r.URL.Path, "/auth-files") && r.Method == http.MethodPatch:
+			patchCalled = true
+			_, _ = w.Write([]byte(`{"ok":true}`))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	t.Cleanup(upstream.Close)
+
+	db := newCodexInspectionTestStore(t)
+	managerCfg := newCodexInspectionManagerConfig(upstream.URL)
+	managerCfg.CodexInspection.AutoActionMode = model.CodexInspectionAutoActionDelete
+	if err := db.SaveManagerConfig(context.Background(), managerCfg); err != nil {
+		t.Fatalf("save manager config: %v", err)
+	}
+	svc := newCodexInspectionTestService(t, db)
+
+	result, err := svc.Run(context.Background(), RunRequest{
+		TriggerType: "manual",
+		TriggerKey:  "manual",
+	})
+	if err != nil {
+		t.Fatalf("run inspection: %v", err)
+	}
+	if deleteCalled || patchCalled {
+		t.Fatalf("mixed same-file actions executed delete=%v patch=%v, want false/false", deleteCalled, patchCalled)
+	}
+	if result.Run.EnableCount != 1 || result.Run.DeleteCount != 1 || result.Run.KeepCount != 0 {
+		t.Fatalf("run counts enable=%d delete=%d keep=%d, want 1/1/0", result.Run.EnableCount, result.Run.DeleteCount, result.Run.KeepCount)
+	}
+	if len(result.Results) != 2 {
+		t.Fatalf("results = %#v, want 2", result.Results)
+	}
+
+	byAuthIndex := map[string]model.CodexInspectionResult{}
+	for _, item := range result.Results {
+		byAuthIndex[item.AuthIndex] = item
+		if item.ActionStatus != model.CodexInspectionActionStatusSkipped ||
+			item.ExecutedAction != "" ||
+			!strings.Contains(item.ActionError, "多个不同建议动作") {
+			t.Fatalf("mixed result = %#v, want skipped with conflict reason", item)
+		}
+	}
+	if byAuthIndex["auth-1"].Action != "enable" {
+		t.Fatalf("auth-1 action = %q, want enable", byAuthIndex["auth-1"].Action)
+	}
+	if byAuthIndex["auth-2"].Action != "delete" {
+		t.Fatalf("auth-2 action = %q, want delete", byAuthIndex["auth-2"].Action)
+	}
+}
+
 func TestRunClassifiesExpiredUnauthorizedAsReauth(t *testing.T) {
 	var deleteCalled bool
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

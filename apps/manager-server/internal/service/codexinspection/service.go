@@ -701,12 +701,12 @@ func (s *Service) executeAutoActions(
 	logger runLogger,
 ) []ActionOutcome {
 	mode := model.NormalizeCodexInspectionAutoActionMode(settings.AutoActionMode, model.CodexInspectionAutoActionNone)
-	items, duplicateOutcomes := selectAutoActionItems(mode, results)
+	items, preflightOutcomes := selectAutoActionItems(mode, results)
 	if len(items) == 0 {
-		return duplicateOutcomes
+		return preflightOutcomes
 	}
-	outcomes := make([]ActionOutcome, 0, len(duplicateOutcomes)+len(items))
-	outcomes = append(outcomes, duplicateOutcomes...)
+	outcomes := make([]ActionOutcome, 0, len(preflightOutcomes)+len(items))
+	outcomes = append(outcomes, preflightOutcomes...)
 	outcomes = append(outcomes, s.executeActionItems(ctx, setup, settings, items, logger, "自动处理", func(item model.CodexInspectionResult) string {
 		return resolveExecutableAction(mode, item.Action)
 	})...)
@@ -1099,9 +1099,11 @@ func selectAutoActionItems(mode string, results []model.CodexInspectionResult) (
 	if mode == model.CodexInspectionAutoActionNone {
 		return nil, nil
 	}
-	items := make([]model.CodexInspectionResult, 0)
-	outcomes := make([]ActionOutcome, 0)
-	seenFileNames := map[string]struct{}{}
+	const duplicateReason = "CPA 认证文件动作按文件执行，该文件已由另一条结果处理"
+	const mixedActionReason = "同一认证文件下存在多个不同建议动作，文件级自动处理已跳过，请手动确认"
+
+	groupOrder := make([]string, 0)
+	groups := map[string][]model.CodexInspectionResult{}
 	for _, result := range results {
 		if !allowAutoAction(mode, result) {
 			continue
@@ -1110,12 +1112,38 @@ func selectAutoActionItems(mode string, results []model.CodexInspectionResult) (
 		if fileName == "" {
 			continue
 		}
-		if _, ok := seenFileNames[fileName]; ok {
-			outcomes = append(outcomes, skippedActionOutcome(result, result.Action, "CPA 认证文件动作按文件执行，该文件已由另一条结果处理"))
+		if _, ok := groups[fileName]; !ok {
+			groupOrder = append(groupOrder, fileName)
+		}
+		groups[fileName] = append(groups[fileName], result)
+	}
+
+	items := make([]model.CodexInspectionResult, 0)
+	outcomes := make([]ActionOutcome, 0)
+	for _, fileName := range groupOrder {
+		group := groups[fileName]
+		if len(group) == 0 {
 			continue
 		}
-		seenFileNames[fileName] = struct{}{}
-		items = append(items, result)
+		action := group[0].Action
+		mixedAction := false
+		for _, result := range group[1:] {
+			if result.Action != action {
+				mixedAction = true
+				break
+			}
+		}
+		if mixedAction {
+			for _, result := range group {
+				outcomes = append(outcomes, skippedActionOutcome(result, result.Action, mixedActionReason))
+			}
+			continue
+		}
+
+		items = append(items, group[0])
+		for _, result := range group[1:] {
+			outcomes = append(outcomes, skippedActionOutcome(result, result.Action, duplicateReason))
+		}
 	}
 	return items, outcomes
 }
