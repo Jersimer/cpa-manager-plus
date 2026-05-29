@@ -105,7 +105,7 @@ export interface ManagerExternalUsageServiceConfig {
 }
 
 export type ManagerCodexInspectionScheduleMode = 'interval' | 'time_points';
-export type ManagerCodexInspectionAutoActionMode = 'none' | 'disable' | 'delete';
+export type ManagerCodexInspectionAutoActionMode = 'none' | 'enable' | 'disable' | 'delete';
 
 export interface ManagerCodexInspectionScheduleConfig {
   mode?: ManagerCodexInspectionScheduleMode | string;
@@ -163,6 +163,7 @@ export interface CodexInspectionRun {
   deleteCount: number;
   disableCount: number;
   enableCount: number;
+  reauthCount: number;
   keepCount: number;
   error?: string;
   settings?: ManagerCodexInspectionConfig;
@@ -184,6 +185,9 @@ export interface CodexInspectionResult {
   state?: string;
   action: string;
   actionReason: string;
+  actionStatus?: string;
+  executedAction?: string;
+  actionError?: string;
   statusCode?: number;
   usedPercent?: number;
   isQuota: boolean;
@@ -208,6 +212,22 @@ export interface CodexInspectionRunDetail {
   run: CodexInspectionRun;
   results: CodexInspectionResult[];
   logs: CodexInspectionLog[];
+}
+
+export interface CodexInspectionActionOutcome {
+  resultId?: number;
+  accountKey?: string;
+  fileName: string;
+  displayAccount: string;
+  action: string;
+  status: string;
+  success: boolean;
+  error?: string;
+}
+
+export interface CodexInspectionActionsResponse {
+  outcomes: CodexInspectionActionOutcome[];
+  detail: CodexInspectionRunDetail;
 }
 
 export interface ModelPricesResponse {
@@ -895,6 +915,25 @@ export const usageServiceApi = {
       const response = await axios.post<CodexInspectionRunDetail>(
         buildUrl(base, '/v0/management/codex-inspection/run'),
         undefined,
+        {
+          timeout: CODEX_INSPECTION_RUN_TIMEOUT_MS,
+          headers: authHeaders(managementKey),
+        }
+      );
+      return response.data;
+    });
+  },
+
+  executeCodexInspectionActions: async (
+    base: string,
+    managementKey: string | undefined,
+    runId: number,
+    resultIds: number[]
+  ): Promise<CodexInspectionActionsResponse> => {
+    return withUsageServiceError(async () => {
+      const response = await axios.post<CodexInspectionActionsResponse>(
+        buildUrl(base, `/v0/management/codex-inspection/runs/${runId}/actions`),
+        { resultIds },
         {
           timeout: CODEX_INSPECTION_RUN_TIMEOUT_MS,
           headers: authHeaders(managementKey),

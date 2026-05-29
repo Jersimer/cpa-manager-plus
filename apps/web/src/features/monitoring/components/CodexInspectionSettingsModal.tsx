@@ -4,21 +4,17 @@ import { Input } from '@/components/ui/Input';
 import { Modal } from '@/components/ui/Modal';
 import {
   IconBot,
-  IconCheck,
   IconCrosshair,
   IconSettings,
-  IconShield,
   IconTimer,
-  IconTrash2,
 } from '@/components/ui/icons';
 import {
-  CODEX_INSPECTION_AUTO_ACTION_MODES,
   DEFAULT_CODEX_INSPECTION_SETTINGS,
   type CodexInspectionAutoActionMode,
 } from '@/features/monitoring/codexInspection';
+import { CodexInspectionAutoActionEditor } from '@/features/monitoring/components/CodexInspectionAutoActionEditor';
 import { SettingsSection } from '@/features/monitoring/components/CodexInspectionPanels';
 import {
-  formatAutoActionModeLabel,
   type InspectionSettingsDraft,
   type InspectionSettingsDraftField,
 } from '@/features/monitoring/model/codexInspectionPresentation';
@@ -161,72 +157,11 @@ export function CodexInspectionSettingsModal({
           icon={<IconSettings size={18} />}
           title={t('monitoring.codex_inspection_settings_group_auto')}
         >
-          <div className={styles.settingsAutoContent}>
-            <span className={styles.settingsAutoLabel}>
-              {t('monitoring.codex_inspection_settings_auto_action_mode_label')}
-            </span>
-            <div className={styles.settingsAutoCards}>
-              {CODEX_INSPECTION_AUTO_ACTION_MODES.map((mode) => {
-                const active = settingsDraft.autoActionMode === mode;
-                const toneClass =
-                  mode === 'delete'
-                    ? styles.settingsAutoOptionDelete
-                    : mode === 'disable'
-                      ? styles.settingsAutoOptionDisable
-                      : styles.settingsAutoOptionNone;
-                const ModeIcon =
-                  mode === 'delete' ? IconTrash2 : mode === 'disable' ? IconShield : IconCrosshair;
-
-                return (
-                  <button
-                    key={mode}
-                    type="button"
-                    className={[
-                      styles.settingsAutoOption,
-                      toneClass,
-                      active ? styles.settingsAutoOptionActive : '',
-                    ]
-                      .filter(Boolean)
-                      .join(' ')}
-                    onClick={() => onAutoActionModeChange(mode)}
-                    aria-pressed={active}
-                  >
-                    <span className={styles.settingsAutoOptionIcon}>
-                      <ModeIcon size={34} />
-                    </span>
-                    <span className={styles.settingsAutoOptionText}>
-                      <strong>{formatAutoActionModeLabel(mode, t)}</strong>
-                      <small>
-                        {t(`monitoring.codex_inspection_settings_auto_action_mode_${mode}_desc`)}
-                      </small>
-                    </span>
-                    <span className={styles.settingsAutoOptionCheck}>
-                      {active ? <IconCheck size={14} /> : null}
-                    </span>
-                  </button>
-                );
-              })}
-            </div>
-            <p className={styles.settingsAutoHint}>
-              {t('monitoring.codex_inspection_settings_auto_action_mode_hint')}
-            </p>
-            {settingsDraft.autoActionMode !== 'none' ? (
-              <p
-                className={[
-                  styles.settingsAutoWarning,
-                  settingsDraft.autoActionMode === 'delete'
-                    ? styles.settingsAutoWarningDelete
-                    : styles.settingsAutoWarningDisable,
-                ]
-                  .filter(Boolean)
-                  .join(' ')}
-              >
-                {settingsDraft.autoActionMode === 'delete'
-                  ? t('monitoring.codex_inspection_settings_auto_action_mode_delete_warning')
-                  : t('monitoring.codex_inspection_settings_auto_action_mode_disable_warning')}
-              </p>
-            ) : null}
-          </div>
+          <CodexInspectionAutoActionEditor
+            value={settingsDraft.autoActionMode}
+            t={t}
+            onChange={onAutoActionModeChange}
+          />
         </SettingsSection>
       </div>
 

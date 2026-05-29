@@ -15,6 +15,14 @@ import {
   type CodexInspectionResultItem,
   type CodexInspectionRunResult,
 } from './codexInspection';
+import {
+  countActions,
+  filterByAction,
+  getCanonicalServerCodexInspectionActionIds,
+  getMixedServerCodexInspectionActionIds,
+  isActionableServerCodexInspectionResult,
+  normalizeServerCodexInspectionActionStatus,
+} from './model/codexInspectionPresentation';
 
 const createStorage = () => {
   const values = new Map<string, string>();
@@ -92,6 +100,7 @@ const createRunResult = (): CodexInspectionRunResult => {
       deleteCount: 1,
       disableCount: 0,
       enableCount: 0,
+      reauthCount: 0,
       keepCount: 0,
       usedPercentThreshold: 90,
       sampled: false,
@@ -111,7 +120,10 @@ describe('Codex inspection settings', () => {
   it('migrates legacy auto execute settings to auto disable', () => {
     const storage = createStorage();
     vi.stubGlobal('localStorage', storage);
-    storage.setItem(CODEX_INSPECTION_SETTINGS_STORAGE_KEY, JSON.stringify({ autoExecuteActions: true }));
+    storage.setItem(
+      CODEX_INSPECTION_SETTINGS_STORAGE_KEY,
+      JSON.stringify({ autoExecuteActions: true })
+    );
 
     expect(loadCodexInspectionConfigurableSettings(null).autoActionMode).toBe('disable');
   });
@@ -121,9 +133,28 @@ describe('resolveCodexInspectionAutoActionItems', () => {
   const deleteItem = createResultItem('delete');
   const disableItem = createResultItem('disable');
   const enableItem = createResultItem('enable');
+  const reauthItem = createResultItem('reauth', { statusCode: 401 });
 
   it('does nothing when automatic mode is none', () => {
-    expect(resolveCodexInspectionAutoActionItems('none', [deleteItem, disableItem, enableItem])).toEqual([]);
+    expect(
+      resolveCodexInspectionAutoActionItems('none', [
+        deleteItem,
+        disableItem,
+        enableItem,
+        reauthItem,
+      ])
+    ).toEqual([]);
+  });
+
+  it('only enables recovered accounts in auto enable mode', () => {
+    const items = resolveCodexInspectionAutoActionItems('enable', [
+      deleteItem,
+      disableItem,
+      enableItem,
+      reauthItem,
+    ]);
+
+    expect(items.map((item) => [item.fileName, item.action])).toEqual([['enable.json', 'enable']]);
   });
 
   it('turns delete suggestions into disable actions in auto disable mode', () => {
@@ -131,25 +162,119 @@ describe('resolveCodexInspectionAutoActionItems', () => {
       deleteItem,
       disableItem,
       enableItem,
+      reauthItem,
     ]);
 
     expect(items.map((item) => [item.fileName, item.action])).toEqual([
       ['delete.json', 'disable'],
       ['disable.json', 'disable'],
+      ['enable.json', 'enable'],
     ]);
   });
 
-  it('keeps delete and disable suggestions in auto delete mode', () => {
+  it('keeps delete, disable, and enable suggestions in auto delete mode', () => {
     const items = resolveCodexInspectionAutoActionItems('delete', [
       deleteItem,
       disableItem,
       enableItem,
+      reauthItem,
     ]);
 
     expect(items.map((item) => [item.fileName, item.action])).toEqual([
       ['delete.json', 'delete'],
       ['disable.json', 'disable'],
+      ['enable.json', 'enable'],
     ]);
+  });
+});
+
+describe('Codex inspection action presentation', () => {
+  it('counts reauth suggestions and filters 401 results independently', () => {
+    const items = [
+      createResultItem('delete', { statusCode: 500 }),
+      createResultItem('reauth', { statusCode: 401 }),
+      createResultItem('keep', { statusCode: 401 }),
+    ];
+
+    expect(countActions(items)).toEqual({
+      delete: 1,
+      disable: 0,
+      enable: 0,
+      reauth: 1,
+      http401: 2,
+    });
+    expect(filterByAction(items, 'reauth').map((item) => item.action)).toEqual(['reauth']);
+    expect(filterByAction(items, 'http_401').map((item) => item.statusCode)).toEqual([401, 401]);
+  });
+});
+
+describe('Server Codex inspection action presentation', () => {
+  it('normalizes pending action status for server results', () => {
+    expect(normalizeServerCodexInspectionActionStatus({ action: 'delete' })).toBe('pending');
+    expect(normalizeServerCodexInspectionActionStatus({ action: 'keep' })).toBe('none');
+    expect(
+      normalizeServerCodexInspectionActionStatus({
+        action: 'delete',
+        actionStatus: 'needs_review',
+      })
+    ).toBe('needs_review');
+    expect(isActionableServerCodexInspectionResult({ id: 1, action: 'disable' })).toBe(true);
+    expect(
+      isActionableServerCodexInspectionResult({
+        id: 2,
+        action: 'disable',
+        actionStatus: 'success',
+      })
+    ).toBe(false);
+    expect(
+      isActionableServerCodexInspectionResult({
+        id: 3,
+        action: 'delete',
+        actionStatus: 'needs_review',
+      })
+    ).toBe(false);
+  });
+
+  it('exposes only the first file-level server action as executable', () => {
+    const canonicalIds = getCanonicalServerCodexInspectionActionIds([
+      { id: 1, fileName: 'auth-a.json', action: 'delete', actionStatus: 'success' },
+      { id: 2, fileName: 'auth-a.json', action: 'delete', actionStatus: 'pending' },
+      { id: 3, fileName: 'auth-b.json', action: 'disable', actionStatus: 'failed' },
+      { id: 4, fileName: 'auth-c.json', action: 'reauth' },
+    ]);
+
+    expect(Array.from(canonicalIds)).toEqual([3]);
+  });
+
+  it('suppresses file-level server actions when same-file suggestions conflict', () => {
+    const results = [
+      { id: 1, fileName: 'auth-a.json', action: 'enable', actionStatus: 'pending' },
+      { id: 2, fileName: 'auth-a.json', action: 'delete', actionStatus: 'pending' },
+    ];
+    const canonicalIds = getCanonicalServerCodexInspectionActionIds(results);
+    const mixedIds = getMixedServerCodexInspectionActionIds(results);
+
+    expect(Array.from(canonicalIds)).toEqual([]);
+    expect(Array.from(mixedIds)).toEqual([1, 2]);
+  });
+
+  it('keeps one canonical action per same-action file group', () => {
+    const canonicalIds = getCanonicalServerCodexInspectionActionIds([
+      { id: 1, fileName: 'auth-a.json', action: 'delete', actionStatus: 'pending' },
+      { id: 2, fileName: 'auth-a.json', action: 'delete', actionStatus: 'pending' },
+    ]);
+
+    expect(Array.from(canonicalIds)).toEqual([1]);
+  });
+
+  it('keeps canonical actions for different files independently', () => {
+    const canonicalIds = getCanonicalServerCodexInspectionActionIds([
+      { id: 1, fileName: 'auth-a.json', action: 'delete', actionStatus: 'pending' },
+      { id: 2, fileName: 'auth-b.json', action: 'enable', actionStatus: 'failed' },
+      { id: 3, fileName: 'auth-c.json', action: 'disable', actionStatus: 'needs_review' },
+    ]);
+
+    expect(Array.from(canonicalIds)).toEqual([1, 2]);
   });
 });
 
@@ -196,7 +321,10 @@ describe('Codex inspection last-run cache', () => {
     );
 
     expect(fingerprint).toBe(
-      createCodexInspectionConnectionFingerprint('https://cpa.example.test', 'management-secret-token')
+      createCodexInspectionConnectionFingerprint(
+        'https://cpa.example.test',
+        'management-secret-token'
+      )
     );
     expect(fingerprint).not.toContain('management-secret-token');
     expect(fingerprint).not.toContain('cpa.example.test');
@@ -323,5 +451,32 @@ describe('Codex inspection last-run cache', () => {
     expect(loaded?.actionFilter).toBe('delete');
     expect(loaded?.logs).toHaveLength(1);
     expect(loaded?.result.summary.deleteCount).toBe(1);
+  });
+
+  it('stores and restores reauth suggestions and 401 filters', () => {
+    const storage = createStorage();
+    vi.stubGlobal('localStorage', storage);
+    const baseResult = createRunResult();
+    const reauthResult: CodexInspectionRunResult = {
+      ...baseResult,
+      results: [createResultItem('reauth', { statusCode: 401 })],
+      summary: {
+        ...baseResult.summary,
+        deleteCount: 0,
+        reauthCount: 1,
+        plannedActionPreview: ['reauth@example.com -> reauth'],
+      },
+    };
+
+    saveCodexInspectionLastRun({
+      result: reauthResult,
+      actionFilter: 'http_401',
+    });
+
+    const loaded = loadCodexInspectionLastRun();
+
+    expect(loaded?.actionFilter).toBe('http_401');
+    expect(loaded?.result.results[0].action).toBe('reauth');
+    expect(loaded?.result.summary.reauthCount).toBe(1);
   });
 });
