@@ -1,10 +1,18 @@
 import { Link } from 'react-router-dom';
+import type { ComponentType } from 'react';
 import type { TFunction } from 'i18next';
 import { Button } from '@/components/ui/Button';
 import { Card } from '@/components/ui/Card';
 import {
+  IconChartLine,
+  IconCheck,
   IconExternalLink,
+  IconInbox,
+  IconRefreshCw,
   IconSettings,
+  IconShield,
+  IconTrash2,
+  type IconProps,
 } from '@/components/ui/icons';
 import {
   type CodexInspectionConfigurableSettings,
@@ -16,6 +24,24 @@ import {
   type SummaryCard,
 } from '@/features/monitoring/model/codexInspectionPresentation';
 import styles from '../CodexInspectionPage.module.scss';
+
+const summaryIconMap: Record<NonNullable<SummaryCard['icon']>, ComponentType<IconProps>> = {
+  probe: IconInbox,
+  sampled: IconChartLine,
+  delete: IconTrash2,
+  disable: IconShield,
+  enable: IconCheck,
+  reauth: IconRefreshCw,
+};
+
+const summaryAccentClassMap: Record<NonNullable<SummaryCard['accent']>, string> = {
+  blue: styles.summaryAccentBlue,
+  cyan: styles.summaryAccentCyan,
+  red: styles.summaryAccentRed,
+  amber: styles.summaryAccentAmber,
+  green: styles.summaryAccentGreen,
+  violet: styles.summaryAccentViolet,
+};
 
 type CodexInspectionStatusPanelProps = {
   inspectionSettings: CodexInspectionConfigurableSettings;
@@ -153,23 +179,47 @@ export function CodexInspectionStatusPanel({
         ) : null}
       </Card>
 
-      <section className={styles.summaryGrid}>
-        {summaryCards.map((card) => (
-          <Card
-            key={card.key}
-            className={[
-              styles.summaryCard,
-              card.tone ? styles[`tone-${card.tone}`] : '',
-            ]
-              .filter(Boolean)
-              .join(' ')}
-          >
-            <span className={styles.summaryLabel}>{card.label}</span>
-            <strong className={styles.summaryValue}>{card.value}</strong>
-            <span className={styles.summaryMeta}>{card.meta}</span>
-          </Card>
-        ))}
-      </section>
+      <div className={styles.summaryShell}>
+        <section className={styles.summaryGrid}>
+          {summaryCards.map((card) => {
+            const SummaryIcon = card.icon ? summaryIconMap[card.icon] : null;
+            return (
+              <div
+                key={card.key}
+                className={[
+                  styles.summaryCard,
+                  card.accent ? summaryAccentClassMap[card.accent] : '',
+                  card.tone ? styles[`tone-${card.tone}`] : '',
+                ]
+                  .filter(Boolean)
+                  .join(' ')}
+              >
+                <div className={styles.summaryHeader}>
+                  {SummaryIcon ? (
+                    <span className={styles.summaryIcon}>
+                      <SummaryIcon size={18} />
+                    </span>
+                  ) : null}
+                  <span className={styles.summaryLabel} title={card.label}>
+                    {card.label}
+                  </span>
+                </div>
+                <div className={styles.summaryBody}>
+                  <strong className={styles.summaryValue}>{card.value}</strong>
+                  <span className={styles.summaryMeta} title={card.meta}>
+                    {card.meta}
+                  </span>
+                </div>
+                <div className={styles.summarySparkline} aria-hidden="true">
+                  <svg viewBox="0 0 100 30" preserveAspectRatio="none">
+                    <path d="M0,25 Q15,6 30,19 T60,11 T100,24" />
+                  </svg>
+                </div>
+              </div>
+            );
+          })}
+        </section>
+      </div>
     </>
   );
 }

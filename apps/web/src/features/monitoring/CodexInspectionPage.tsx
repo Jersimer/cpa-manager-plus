@@ -10,6 +10,7 @@ import {
   DEFAULT_CODEX_INSPECTION_SETTINGS,
   executeCodexInspectionActions,
   isCodexInspectionStoppedError,
+  isExecutableAction,
   isSuggestedAction,
   loadCodexInspectionLastRun,
   resolveCodexInspectionAutoActionItems,
@@ -215,10 +216,10 @@ export function CodexInspectionPage() {
       void promise
         .then((nextResult) => {
           if (activeSessionIdRef.current !== sessionId) return;
-          const nextActionableResults = nextResult.results.filter(isSuggestedAction);
+          const nextSuggestedResults = nextResult.results.filter(isSuggestedAction);
           const autoTargets = resolveCodexInspectionAutoActionItems(
             autoActionMode,
-            nextActionableResults
+            nextSuggestedResults
           );
           setResult(nextResult);
           setResultConnectionFingerprint(runConnectionFingerprint);
@@ -241,10 +242,10 @@ export function CodexInspectionPage() {
               return;
             }
 
-            if (nextActionableResults.length > 0) {
+            if (nextSuggestedResults.length > 0) {
               const skippedMessage = t('monitoring.codex_inspection_auto_execute_skipped_by_mode', {
                 mode: formatAutoActionModeLabel(autoActionMode, t),
-                count: nextActionableResults.length,
+                count: nextSuggestedResults.length,
               });
               appendLog('warning', skippedMessage);
               showNotification(skippedMessage, 'info');
@@ -253,7 +254,7 @@ export function CodexInspectionPage() {
           }
 
           const noActionsMessage =
-            nextActionableResults.length === 0
+            nextSuggestedResults.length === 0
               ? t('monitoring.codex_inspection_auto_execute_no_actions')
               : t('monitoring.codex_inspection_run_success');
           appendLog('success', noActionsMessage);
@@ -407,7 +408,7 @@ export function CodexInspectionPage() {
         showNotification(t('notification.connection_required'), 'warning');
         return;
       }
-      const targets = items.filter(isSuggestedAction);
+      const targets = items.filter(isExecutableAction);
       if (targets.length === 0) {
         showNotification(t('monitoring.codex_inspection_no_pending_actions'), 'info');
         return;
@@ -471,20 +472,25 @@ export function CodexInspectionPage() {
     executeItemsRef.current = executeItems;
   }, [executeItems]);
 
-  const actionableResults = useMemo(
+  const suggestedResults = useMemo(
     () => (result ? result.results.filter(isSuggestedAction) : []),
     [result]
   );
 
+  const executableResults = useMemo(
+    () => (result ? result.results.filter(isExecutableAction) : []),
+    [result]
+  );
+
   const filteredResults = useMemo(
-    () => filterByAction(actionableResults, actionFilter),
-    [actionableResults, actionFilter]
+    () => filterByAction(suggestedResults, actionFilter),
+    [suggestedResults, actionFilter]
   );
 
   const handleExecutePlanned = useCallback(() => {
     if (!result) return;
 
-    const targets = actionableResults;
+    const targets = executableResults;
     const counts = countActions(targets);
     showConfirmation({
       title: t('monitoring.codex_inspection_execute_confirm_title'),
@@ -499,7 +505,7 @@ export function CodexInspectionPage() {
       variant: 'danger',
       onConfirm: () => executeItems(targets),
     });
-  }, [actionableResults, executeItems, result, showConfirmation, t]);
+  }, [executableResults, executeItems, result, showConfirmation, t]);
 
   const handleExecuteSingle = useCallback(
     (item: CodexInspectionResultItem) => {
@@ -535,14 +541,21 @@ export function CodexInspectionPage() {
     const deleteCount = summarySource ? summarySource.deleteCount : null;
     const disableCount = summarySource ? summarySource.disableCount : null;
     const enableCount = summarySource ? summarySource.enableCount : null;
-    const totalActions =
+    const reauthCount = summarySource ? summarySource.reauthCount : null;
+    const keepCount = summarySource ? summarySource.keepCount : null;
+    const actionCounts =
       summarySource !== null
-        ? summarySource.deleteCount + summarySource.disableCount + summarySource.enableCount
+        ? summarySource.deleteCount +
+          summarySource.disableCount +
+          summarySource.enableCount +
+          summarySource.reauthCount
         : null;
 
     const probeMeta = summarySource
-      ? `${t('monitoring.codex_inspection_target_type')} ${inspectionSettings.targetType}`
-      : t('monitoring.codex_inspection_progress_idle');
+      ? t('monitoring.server_codex_inspection_total_files', {
+          count: summarySource.totalFiles,
+        })
+      : t('monitoring.server_codex_inspection_total_files', { count: 0 });
 
     const sampledMeta = (() => {
       if (sampledTotal === null) {
@@ -559,60 +572,66 @@ export function CodexInspectionPage() {
 
     return [
       {
-        key: 'total-actions',
-        label: t('monitoring.codex_inspection_action_total'),
-        value: totalActions === null ? blank : String(totalActions),
-        meta:
-          totalActions !== null && totalActions > 0
-            ? t('monitoring.codex_inspection_pending_actions') + ` ${totalActions}`
-            : t('monitoring.codex_inspection_no_pending_actions'),
-        tone: totalActions && totalActions > 0 ? 'warn' : 'good',
-      },
-      {
         key: 'probe-total',
         label: t('monitoring.codex_inspection_total_accounts'),
         value: probeSetCount === null ? blank : String(probeSetCount),
         meta: probeMeta,
+        icon: 'probe',
+        accent: 'blue',
       },
       {
         key: 'sampled',
         label: t('monitoring.codex_inspection_sampled_accounts'),
         value: sampledCompleted === null ? blank : String(sampledCompleted),
         meta: sampledMeta,
+        icon: 'sampled',
+        accent: 'cyan',
       },
       {
         key: 'delete',
         label: t('monitoring.codex_inspection_delete_count'),
         value: deleteCount === null ? blank : String(deleteCount),
         meta:
-          deleteCount && deleteCount > 0
-            ? t('monitoring.codex_inspection_action_delete')
-            : dash,
+          actionCounts === null
+            ? dash
+            : t('monitoring.server_codex_inspection_action_total_value', { count: actionCounts }),
         tone: deleteCount && deleteCount > 0 ? 'bad' : undefined,
+        icon: 'delete',
+        accent: 'red',
       },
       {
         key: 'disable',
         label: t('monitoring.codex_inspection_disable_count'),
         value: disableCount === null ? blank : String(disableCount),
-        meta:
-          disableCount && disableCount > 0
-            ? t('monitoring.codex_inspection_action_disable')
-            : dash,
+        meta: `${t('monitoring.codex_inspection_threshold')}: ${inspectionSettings.usedPercentThreshold}%`,
         tone: disableCount && disableCount > 0 ? 'warn' : undefined,
+        icon: 'disable',
+        accent: 'amber',
       },
       {
         key: 'enable',
         label: t('monitoring.codex_inspection_enable_count'),
         value: enableCount === null ? blank : String(enableCount),
         meta:
-          enableCount && enableCount > 0
-            ? t('monitoring.codex_inspection_action_enable')
-            : dash,
+          keepCount === null
+            ? dash
+            : t('monitoring.server_codex_inspection_keep_count', { count: keepCount }),
         tone: enableCount && enableCount > 0 ? 'good' : undefined,
+        icon: 'enable',
+        accent: 'green',
+      },
+      {
+        key: 'reauth',
+        label: t('monitoring.codex_inspection_reauth_count'),
+        value: reauthCount === null ? blank : String(reauthCount),
+        meta: t('monitoring.codex_inspection_action_reauth'),
+        tone: reauthCount && reauthCount > 0 ? 'info' : undefined,
+        icon: 'reauth',
+        accent: 'violet',
       },
     ];
   }, [
-    inspectionSettings.targetType,
+    inspectionSettings.usedPercentThreshold,
     progress.completed,
     progress.percent,
     progress.summary,
@@ -621,7 +640,7 @@ export function CodexInspectionPage() {
     t,
   ]);
 
-  const pendingActionCount = actionableResults.length;
+  const pendingActionCount = executableResults.length;
   const progressLabel =
     progress.total > 0
       ? t('monitoring.codex_inspection_progress_status', {
@@ -771,14 +790,16 @@ export function CodexInspectionPage() {
   }, [logsCollapsed, scrollLogsToBottom]);
 
   const filterCounts = useMemo(() => {
-    const counts = countActions(actionableResults);
+    const counts = countActions(suggestedResults);
     return {
-      all: actionableResults.length,
+      all: suggestedResults.length,
       delete: counts.delete,
       disable: counts.disable,
       enable: counts.enable,
+      reauth: counts.reauth,
+      http_401: counts.http401,
     };
-  }, [actionableResults]);
+  }, [suggestedResults]);
 
   const filterLabel = (filter: ActionFilter) => {
     switch (filter) {
@@ -788,6 +809,10 @@ export function CodexInspectionPage() {
         return t('monitoring.codex_inspection_filter_disable');
       case 'enable':
         return t('monitoring.codex_inspection_filter_enable');
+      case 'reauth':
+        return t('monitoring.codex_inspection_filter_reauth');
+      case 'http_401':
+        return t('monitoring.codex_inspection_filter_401');
       case 'all':
       default:
         return t('monitoring.codex_inspection_filter_all');
@@ -835,7 +860,7 @@ export function CodexInspectionPage() {
       <CodexInspectionResultsPanel
         result={result}
         filteredResults={filteredResults}
-        actionableResults={actionableResults}
+        suggestedResults={suggestedResults}
         pendingActionCount={pendingActionCount}
         filterCounts={filterCounts}
         actionFilter={actionFilter}
