@@ -34,19 +34,31 @@ const buildRows = (overrides: Partial<UsageDetailWithEndpoint> = {}) =>
   );
 
 describe('buildEventRows', () => {
-  it('calculates output tokens per second after TTFT when available', () => {
+  it('calculates output tokens per second from total latency', () => {
     const [row] = buildRows();
 
     expect(row.latencyMs).toBe(1500);
     expect(row.ttftMs).toBe(500);
-    expect(row.tokensPerSecond).toBe(20);
+    expect(row.tokensPerSecond).toBeCloseTo(20 / 1.5);
   });
 
-  it('falls back to total latency when TTFT is missing or not smaller than total latency', () => {
+  it('does not let TTFT change output tokens per second', () => {
     const [withoutTTFT] = buildRows({ ttft_ms: undefined });
+    const [smallTTFT] = buildRows({ ttft_ms: 100 });
     const [invalidTTFT] = buildRows({ ttft_ms: 2000 });
 
     expect(withoutTTFT.tokensPerSecond).toBeCloseTo(20 / 1.5);
+    expect(smallTTFT.tokensPerSecond).toBeCloseTo(20 / 1.5);
     expect(invalidTTFT.tokensPerSecond).toBeCloseTo(20 / 1.5);
+  });
+
+  it('does not calculate tokens per second without output tokens or total latency', () => {
+    const [noOutput] = buildRows({ tokens: { output_tokens: 0 } });
+    const [noLatency] = buildRows({ latency_ms: undefined });
+    const [zeroLatency] = buildRows({ latency_ms: 0 });
+
+    expect(noOutput.tokensPerSecond).toBeNull();
+    expect(noLatency.tokensPerSecond).toBeNull();
+    expect(zeroLatency.tokensPerSecond).toBeNull();
   });
 });
