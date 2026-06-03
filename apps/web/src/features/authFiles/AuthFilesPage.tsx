@@ -424,15 +424,16 @@ export function AuthFilesPage() {
     [lastCodexInspectionResults]
   );
 
-  const codexStatusByFile = useMemo(() => {
+  const codexStatusByAuthFileKey = useMemo(() => {
     const statusMap = new Map<string, ReturnType<typeof getAuthFileCodexStatus>>();
     files.forEach((file) => {
+      const statusKey = getAuthFileCodexInspectionKeyForFile(file);
       statusMap.set(
-        file.name,
+        statusKey,
         getAuthFileCodexStatus(
           file,
           codexQuota[file.name],
-          codexInspectionByAuthFile.get(getAuthFileCodexInspectionKeyForFile(file))
+          codexInspectionByAuthFile.get(statusKey)
         )
       );
     });
@@ -445,13 +446,15 @@ export function AuthFilesPage() {
         if (problemOnly && !hasAuthFileStatusMessage(file)) return false;
         if (disabledOnly && file.disabled !== true) return false;
         if (healthyOnly && !isHealthyAuthFile(file)) return false;
-        const codexStatus = codexStatusByFile.get(file.name);
+        const codexStatus = codexStatusByAuthFileKey.get(
+          getAuthFileCodexInspectionKeyForFile(file)
+        );
         if (codexStatus && !authFileMatchesCodexStatusFilter(codexStatus, codexStatusFilter)) {
           return false;
         }
         return true;
       }),
-    [codexStatusByFile, codexStatusFilter, disabledOnly, files, healthyOnly, problemOnly]
+    [codexStatusByAuthFileKey, codexStatusFilter, disabledOnly, files, healthyOnly, problemOnly]
   );
 
   const sortOptions = useMemo(
@@ -508,7 +511,12 @@ export function AuthFilesPage() {
       const matchSearch =
         !normalizedSearch ||
         stringifySearchValue(
-          getAuthFileSearchValues(item, t, codexQuota[item.name], codexStatusByFile.get(item.name))
+          getAuthFileSearchValues(
+            item,
+            t,
+            codexQuota[item.name],
+            codexStatusByAuthFileKey.get(getAuthFileCodexInspectionKeyForFile(item))
+          )
         ).some((value) => {
           const content = value.toString();
           return wildcardSearch
@@ -519,7 +527,7 @@ export function AuthFilesPage() {
     });
   }, [
     codexQuota,
-    codexStatusByFile,
+    codexStatusByAuthFileKey,
     filesMatchingStatusFilters,
     normalizedFilter,
     normalizedSearch,
@@ -999,26 +1007,31 @@ export function AuthFilesPage() {
               <div
                 className={`${styles.fileGrid} ${pageHasInlineQuotaCards ? styles.fileGridQuotaManaged : ''} ${compactMode ? styles.fileGridCompact : ''}`}
               >
-                {pageItems.map((file) => (
-                  <AuthFileCard
-                    key={file.name}
-                    file={file}
-                    compact={compactMode}
-                    selected={selectedFiles.has(file.name)}
-                    resolvedTheme={resolvedTheme}
-                    disableControls={disableControls}
-                    deleting={deleting}
-                    statusUpdating={statusUpdating}
-                    statusBarCache={statusBarCache}
-                    codexStatusBadges={codexStatusByFile.get(file.name)?.badges ?? []}
-                    onShowModels={showModels}
-                    onDownload={handleDownload}
-                    onOpenPrefixProxyEditor={openPrefixProxyEditor}
-                    onDelete={handleDelete}
-                    onToggleStatus={handleStatusToggle}
-                    onToggleSelect={toggleSelect}
-                  />
-                ))}
+                {pageItems.map((file) => {
+                  const authFileKey = getAuthFileCodexInspectionKeyForFile(file);
+                  return (
+                    <AuthFileCard
+                      key={authFileKey}
+                      file={file}
+                      compact={compactMode}
+                      selected={selectedFiles.has(file.name)}
+                      resolvedTheme={resolvedTheme}
+                      disableControls={disableControls}
+                      deleting={deleting}
+                      statusUpdating={statusUpdating}
+                      statusBarCache={statusBarCache}
+                      codexStatusBadges={
+                        codexStatusByAuthFileKey.get(authFileKey)?.badges ?? []
+                      }
+                      onShowModels={showModels}
+                      onDownload={handleDownload}
+                      onOpenPrefixProxyEditor={openPrefixProxyEditor}
+                      onDelete={handleDelete}
+                      onToggleStatus={handleStatusToggle}
+                      onToggleSelect={toggleSelect}
+                    />
+                  );
+                })}
               </div>
             )}
 
