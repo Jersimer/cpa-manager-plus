@@ -193,7 +193,25 @@ export function useUsageAnalytics() {
         heatmapDateAnalytics.dataStale ||
         (!heatmapDateAnalytics.data && !heatmapDateAnalytics.error))
   );
-  const lastVisibleHeatmapDetailRef = useRef<UsageHeatmapCellDetail | null>(null);
+  const heatmapDetailScopeKey = useMemo(
+    () =>
+      JSON.stringify({
+        cell: selectedHeatmapCell,
+        metric: heatmapMetric,
+        source: selectedHeatmapDate ? heatmapDateDataScopeKey : dataScopeKey,
+      }),
+    [
+      dataScopeKey,
+      heatmapDateDataScopeKey,
+      heatmapMetric,
+      selectedHeatmapCell,
+      selectedHeatmapDate,
+    ]
+  );
+  const lastVisibleHeatmapDetailRef = useRef<{
+    detail: UsageHeatmapCellDetail;
+    scopeKey: string;
+  } | null>(null);
 
   const summaryDelta = useMemo(
     () => buildUsageSummaryDelta(adapted.summary, adapted.summaryComparison),
@@ -249,11 +267,22 @@ export function useUsageAnalytics() {
     () => buildUsageHeatmapCellDetail(heatmapDetailSource, selectedHeatmapCell, heatmapMetric),
     [heatmapDetailSource, heatmapMetric, selectedHeatmapCell]
   );
-  if (heatmapDetail) {
-    lastVisibleHeatmapDetailRef.current = heatmapDetail;
-  }
-  const visibleHeatmapDetail =
-    heatmapDetail ?? (heatmapDateRefreshing ? lastVisibleHeatmapDetailRef.current : null);
+  const visibleHeatmapDetail = useMemo(() => {
+    if (heatmapDetail) {
+      lastVisibleHeatmapDetailRef.current = {
+        detail: heatmapDetail,
+        scopeKey: heatmapDetailScopeKey,
+      };
+      return heatmapDetail;
+    }
+
+    const cachedDetail = lastVisibleHeatmapDetailRef.current;
+    if (heatmapDateRefreshing && cachedDetail?.scopeKey === heatmapDetailScopeKey) {
+      return cachedDetail.detail;
+    }
+
+    return null;
+  }, [heatmapDateRefreshing, heatmapDetail, heatmapDetailScopeKey]);
   const heatmapHighlights = useMemo(
     () => buildUsageHeatmapHighlights(adapted.heatmap),
     [adapted.heatmap]
