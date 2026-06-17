@@ -163,6 +163,58 @@ func TestAnalyticsHeatmapIncludesTopContributors(t *testing.T) {
 	}
 }
 
+func TestAnalyticsCredentialTimelineBuildsPerCredentialBuckets(t *testing.T) {
+	db := newMonitoringTestStore(t)
+	ctx := context.Background()
+	fromMS := int64(1_778_000_000_000)
+	toMS := fromMS + 3*60*60*1000
+	if err := db.SaveModelPrices(ctx, map[string]store.ModelPrice{
+		"gpt-a": {Prompt: 1},
+	}); err != nil {
+		t.Fatalf("save model prices: %v", err)
+	}
+
+	first := monitoringEvent("credential-timeline-a1", fromMS+1_000, "gpt-a", "auth-1", "source-a", false, 1_000_000, 0, 0, 0, 1_000_000, nil)
+	first.AuthFileSnapshot = "prod.json"
+	first.AuthLabelSnapshot = "prod-auth"
+	second := monitoringEvent("credential-timeline-a2", fromMS+60*60*1000+1_000, "gpt-a", "auth-1", "source-a", true, 2_000_000, 0, 0, 0, 2_000_000, nil)
+	second.AuthFileSnapshot = "prod.json"
+	second.AuthLabelSnapshot = "prod-auth"
+	third := monitoringEvent("credential-timeline-b1", fromMS+60*60*1000+2_000, "gpt-a", "auth-2", "source-b", false, 3_000_000, 0, 0, 0, 3_000_000, nil)
+	third.AuthFileSnapshot = "dev.json"
+	third.AuthLabelSnapshot = "dev-auth"
+	if _, err := db.InsertEvents(ctx, []usage.Event{first, second, third}); err != nil {
+		t.Fatalf("insert events: %v", err)
+	}
+
+	resp, err := New(db).Analytics(ctx, Request{
+		FromMS: fromMS,
+		ToMS:   toMS,
+		Include: Include{
+			CredentialTimeline: true,
+			Granularity:        "hour",
+		},
+	})
+	if err != nil {
+		t.Fatalf("analytics: %v", err)
+	}
+	if len(resp.CredentialTimeline) != 3 {
+		t.Fatalf("credential timeline = %#v", resp.CredentialTimeline)
+	}
+	if resp.CredentialTimeline[0].ID != "prod.json" || resp.CredentialTimeline[0].Calls != 1 || resp.CredentialTimeline[0].Failure != 0 {
+		t.Fatalf("first credential bucket = %#v", resp.CredentialTimeline[0])
+	}
+	if resp.CredentialTimeline[1].ID != "prod.json" || resp.CredentialTimeline[1].Calls != 1 || resp.CredentialTimeline[1].Failure != 1 {
+		t.Fatalf("second credential bucket = %#v", resp.CredentialTimeline[1])
+	}
+	if resp.CredentialTimeline[2].ID != "dev.json" || resp.CredentialTimeline[2].Calls != 1 || resp.CredentialTimeline[2].Success != 1 {
+		t.Fatalf("third credential bucket = %#v", resp.CredentialTimeline[2])
+	}
+	if resp.CredentialTimeline[1].Cost <= resp.CredentialTimeline[0].Cost {
+		t.Fatalf("credential timeline cost = %#v", resp.CredentialTimeline)
+	}
+}
+
 func TestAnalyticsSummaryComparisonReturnsPreviousPeriod(t *testing.T) {
 	db := newMonitoringTestStore(t)
 	ctx := context.Background()

@@ -205,6 +205,34 @@ type CredentialModelStat struct {
 	LatencySamples        int64
 }
 
+type CredentialTimelinePoint struct {
+	ID                    string
+	AuthFileSnapshot      string
+	AuthIndex             string
+	Source                string
+	SourceHash            string
+	AccountSnapshot       string
+	AuthLabelSnapshot     string
+	AuthProviderSnapshot  string
+	AuthProjectIDSnapshot string
+	BucketMS              int64
+	Model                 string
+	BillingModel          string
+	ServiceTier           string
+	Calls                 int64
+	Tokens                int64
+	Success               int64
+	Failure               int64
+	InputTokens           int64
+	OutputTokens          int64
+	ReasoningTokens       int64
+	CachedTokens          int64
+	CacheReadTokens       int64
+	CacheCreationTokens   int64
+	AvgLatencyMS          sql.NullFloat64
+	LatencySamples        int64
+}
+
 type APIKeyModelStat struct {
 	APIKeyHash           string
 	AccountSnapshot      string
@@ -1100,6 +1128,147 @@ order by max(timestamp_ms) desc, count(*) desc`, args...)
 		stats = append(stats, stat)
 	}
 	return stats, rows.Err()
+}
+
+func (r *repository) CredentialTimelineWithFilter(ctx context.Context, filter AnalyticsFilter, granularity string, location *time.Location) ([]CredentialTimelinePoint, error) {
+	where, args := analyticsWhere(filter)
+	query := fmt.Sprintf(`select
+	timestamp_ms,
+	coalesce(nullif(auth_file_snapshot, ''), nullif(auth_index, ''), nullif(source_hash, ''), nullif(source, ''), '-') as credential_id,
+	coalesce(auth_file_snapshot, ''),
+	coalesce(auth_index, ''),
+	coalesce(source, ''),
+	coalesce(source_hash, ''),
+	coalesce(account_snapshot, ''),
+	coalesce(auth_label_snapshot, ''),
+	coalesce(nullif(auth_provider_snapshot, ''), provider, ''),
+	coalesce(auth_project_id_snapshot, ''),
+	model,
+	coalesce(nullif(resolved_model, ''), model) as billing_model,
+	coalesce(service_tier, '') as service_tier,
+	failed,
+	input_tokens,
+	output_tokens,
+	reasoning_tokens,
+	`+compatCachedExpr+`,
+	cache_read_tokens,
+	cache_creation_tokens,
+	total_tokens,
+	latency_ms
+from usage_events %s
+order by timestamp_ms, credential_id, model`, where)
+	rows, err := r.db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	type key struct {
+		id               string
+		authFileSnapshot string
+		authIndex        string
+		sourceHash       string
+		bucketMS         int64
+		model            string
+		billingModel     string
+		serviceTier      string
+	}
+	grouped := map[key]*CredentialTimelinePoint{}
+	order := make([]key, 0)
+	for rows.Next() {
+		var timestampMS int64
+		var point CredentialTimelinePoint
+		var failed int
+		var latency sql.NullFloat64
+		var totalTokens int64
+		if err := rows.Scan(
+			&timestampMS,
+			&point.ID,
+			&point.AuthFileSnapshot,
+			&point.AuthIndex,
+			&point.Source,
+			&point.SourceHash,
+			&point.AccountSnapshot,
+			&point.AuthLabelSnapshot,
+			&point.AuthProviderSnapshot,
+			&point.AuthProjectIDSnapshot,
+			&point.Model,
+			&point.BillingModel,
+			&point.ServiceTier,
+			&failed,
+			&point.InputTokens,
+			&point.OutputTokens,
+			&point.ReasoningTokens,
+			&point.CachedTokens,
+			&point.CacheReadTokens,
+			&point.CacheCreationTokens,
+			&totalTokens,
+			&latency,
+		); err != nil {
+			return nil, err
+		}
+		bucketMS := resolveBucketMS(timestampMS, granularity, location)
+		mapKey := key{
+			id:               point.ID,
+			authFileSnapshot: point.AuthFileSnapshot,
+			authIndex:        point.AuthIndex,
+			sourceHash:       point.SourceHash,
+			bucketMS:         bucketMS,
+			model:            point.Model,
+			billingModel:     point.BillingModel,
+			serviceTier:      point.ServiceTier,
+		}
+		entry := grouped[mapKey]
+		if entry == nil {
+			entry = &CredentialTimelinePoint{
+				ID:                    point.ID,
+				AuthFileSnapshot:      point.AuthFileSnapshot,
+				AuthIndex:             point.AuthIndex,
+				Source:                point.Source,
+				SourceHash:            point.SourceHash,
+				AccountSnapshot:       point.AccountSnapshot,
+				AuthLabelSnapshot:     point.AuthLabelSnapshot,
+				AuthProviderSnapshot:  point.AuthProviderSnapshot,
+				AuthProjectIDSnapshot: point.AuthProjectIDSnapshot,
+				BucketMS:              bucketMS,
+				Model:                 point.Model,
+				BillingModel:          point.BillingModel,
+				ServiceTier:           point.ServiceTier,
+			}
+			grouped[mapKey] = entry
+			order = append(order, mapKey)
+		}
+		entry.Calls += 1
+		entry.Tokens += totalTokens
+		if failed != 0 {
+			entry.Failure += 1
+		} else {
+			entry.Success += 1
+		}
+		entry.InputTokens += point.InputTokens
+		entry.OutputTokens += point.OutputTokens
+		entry.ReasoningTokens += point.ReasoningTokens
+		entry.CachedTokens += point.CachedTokens
+		entry.CacheReadTokens += point.CacheReadTokens
+		entry.CacheCreationTokens += point.CacheCreationTokens
+		if latency.Valid && latency.Float64 > 0 {
+			entry.AvgLatencyMS.Float64 += latency.Float64
+			entry.LatencySamples += 1
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	points := make([]CredentialTimelinePoint, 0, len(order))
+	for _, mapKey := range order {
+		point := grouped[mapKey]
+		if point.LatencySamples > 0 {
+			point.AvgLatencyMS.Float64 = point.AvgLatencyMS.Float64 / float64(point.LatencySamples)
+			point.AvgLatencyMS.Valid = true
+		}
+		points = append(points, *point)
+	}
+	return points, nil
 }
 
 func (r *repository) APIKeyModelStatsWithFilter(ctx context.Context, filter AnalyticsFilter) ([]APIKeyModelStat, error) {

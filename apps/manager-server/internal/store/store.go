@@ -58,6 +58,7 @@ type ChannelModelStat = usageevent.ChannelModelStat
 type FailureSourceStat = usageevent.FailureSourceStat
 type AccountModelStat = usageevent.AccountModelStat
 type CredentialModelStat = usageevent.CredentialModelStat
+type CredentialTimelinePoint = usageevent.CredentialTimelinePoint
 type APIKeyModelStat = usageevent.APIKeyModelStat
 type TaskBucket = usageevent.TaskBucket
 type EventPageItem = usageevent.EventPageItem
@@ -355,6 +356,10 @@ func (s *Store) AccountModelStatsWithFilter(ctx context.Context, filter Analytic
 
 func (s *Store) CredentialModelStatsWithFilter(ctx context.Context, filter AnalyticsFilter) ([]CredentialModelStat, error) {
 	return s.UsageEvents.CredentialModelStatsWithFilter(ctx, filter)
+}
+
+func (s *Store) CredentialTimelineWithFilter(ctx context.Context, filter AnalyticsFilter, granularity string, location *time.Location) ([]CredentialTimelinePoint, error) {
+	return s.UsageEvents.CredentialTimelineWithFilter(ctx, filter, granularity, location)
 }
 
 func (s *Store) APIKeyModelStatsWithFilter(ctx context.Context, filter AnalyticsFilter) ([]APIKeyModelStat, error) {

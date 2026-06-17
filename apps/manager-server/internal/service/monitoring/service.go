@@ -66,6 +66,7 @@ type Include struct {
 	FailureSources     bool              `json:"failure_sources"`
 	AccountStats       bool              `json:"account_stats"`
 	CredentialStats    bool              `json:"credential_stats"`
+	CredentialTimeline bool              `json:"credential_timeline"`
 	APIKeyStats        bool              `json:"api_key_stats"`
 	FilterOptions      bool              `json:"filter_options"`
 	Heatmap            bool              `json:"heatmap"`
@@ -90,26 +91,27 @@ type DrilldownPreview struct {
 }
 
 type Response struct {
-	GeneratedAtMS      int64               `json:"generated_at_ms"`
-	Granularity        string              `json:"granularity"`
-	Summary            *Summary            `json:"summary,omitempty"`
-	SummaryComparison  *SummaryComparison  `json:"summary_comparison,omitempty"`
-	Timeline           []TimelinePoint     `json:"timeline,omitempty"`
-	HourlyDistribution []HourlyPoint       `json:"hourly_distribution,omitempty"`
-	Heatmap            []HeatmapPoint      `json:"heatmap,omitempty"`
-	AnomalyPoints      []AnomalyPoint      `json:"anomaly_points,omitempty"`
-	ModelShare         []ModelShareRow     `json:"model_share,omitempty"`
-	ModelStats         []ModelStat         `json:"model_stats,omitempty"`
-	ChannelShare       []ChannelShareRow   `json:"channel_share,omitempty"`
-	FailureSources     []FailureSourceRow  `json:"failure_sources,omitempty"`
-	AccountStats       []AccountStatRow    `json:"account_stats,omitempty"`
-	CredentialStats    []CredentialStatRow `json:"credential_stats,omitempty"`
-	APIKeyStats        []APIKeyStatRow     `json:"api_key_stats,omitempty"`
-	FilterOptions      *FilterOptions      `json:"filter_options,omitempty"`
-	TaskBuckets        []TaskBucketRow     `json:"task_buckets,omitempty"`
-	RecentFailures     []RecentFailure     `json:"recent_failures,omitempty"`
-	Events             *EventsResponse     `json:"events,omitempty"`
-	DrilldownPreview   *EventsResponse     `json:"drilldown_preview,omitempty"`
+	GeneratedAtMS      int64                     `json:"generated_at_ms"`
+	Granularity        string                    `json:"granularity"`
+	Summary            *Summary                  `json:"summary,omitempty"`
+	SummaryComparison  *SummaryComparison        `json:"summary_comparison,omitempty"`
+	Timeline           []TimelinePoint           `json:"timeline,omitempty"`
+	HourlyDistribution []HourlyPoint             `json:"hourly_distribution,omitempty"`
+	Heatmap            []HeatmapPoint            `json:"heatmap,omitempty"`
+	AnomalyPoints      []AnomalyPoint            `json:"anomaly_points,omitempty"`
+	ModelShare         []ModelShareRow           `json:"model_share,omitempty"`
+	ModelStats         []ModelStat               `json:"model_stats,omitempty"`
+	ChannelShare       []ChannelShareRow         `json:"channel_share,omitempty"`
+	FailureSources     []FailureSourceRow        `json:"failure_sources,omitempty"`
+	AccountStats       []AccountStatRow          `json:"account_stats,omitempty"`
+	CredentialStats    []CredentialStatRow       `json:"credential_stats,omitempty"`
+	CredentialTimeline []CredentialTimelinePoint `json:"credential_timeline,omitempty"`
+	APIKeyStats        []APIKeyStatRow           `json:"api_key_stats,omitempty"`
+	FilterOptions      *FilterOptions            `json:"filter_options,omitempty"`
+	TaskBuckets        []TaskBucketRow           `json:"task_buckets,omitempty"`
+	RecentFailures     []RecentFailure           `json:"recent_failures,omitempty"`
+	Events             *EventsResponse           `json:"events,omitempty"`
+	DrilldownPreview   *EventsResponse           `json:"drilldown_preview,omitempty"`
 }
 
 type Summary struct {
@@ -324,6 +326,36 @@ type CredentialStatRow struct {
 	AvgLatencyMS          *float64              `json:"average_latency_ms"`
 	LastSeenMS            int64                 `json:"last_seen_ms"`
 	Models                []AccountModelStatRow `json:"models,omitempty"`
+}
+
+type CredentialTimelinePoint struct {
+	ID                    string   `json:"id"`
+	Label                 string   `json:"label"`
+	AuthFileSnapshot      string   `json:"auth_file_snapshot,omitempty"`
+	AuthIndex             string   `json:"auth_index,omitempty"`
+	Source                string   `json:"source,omitempty"`
+	SourceHash            string   `json:"source_hash,omitempty"`
+	AccountSnapshot       string   `json:"account_snapshot,omitempty"`
+	AuthLabelSnapshot     string   `json:"auth_label_snapshot,omitempty"`
+	AuthProviderSnapshot  string   `json:"auth_provider_snapshot,omitempty"`
+	AuthProjectIDSnapshot string   `json:"auth_project_id_snapshot,omitempty"`
+	BucketMS              int64    `json:"bucket_ms"`
+	BucketLabel           string   `json:"bucket_label"`
+	Calls                 int64    `json:"calls"`
+	Tokens                int64    `json:"tokens"`
+	Success               int64    `json:"success"`
+	Failure               int64    `json:"failure"`
+	InputTokens           int64    `json:"input_tokens"`
+	OutputTokens          int64    `json:"output_tokens"`
+	CachedTokens          int64    `json:"cached_tokens"`
+	CacheReadTokens       int64    `json:"cache_read_tokens"`
+	CacheCreationTokens   int64    `json:"cache_creation_tokens"`
+	ReasoningTokens       int64    `json:"reasoning_tokens"`
+	TotalTokens           int64    `json:"total_tokens"`
+	Cost                  float64  `json:"cost"`
+	AvgLatencyMS          *float64 `json:"average_latency_ms"`
+	SuccessRate           float64  `json:"success_rate"`
+	FailureRate           float64  `json:"failure_rate"`
 }
 
 type AccountModelStatRow struct {
@@ -630,6 +662,13 @@ func (s *Service) Analytics(ctx context.Context, req Request) (Response, error) 
 			return Response{}, err
 		}
 		response.CredentialStats = buildCredentialStats(stats, prices)
+	}
+	if req.Include.CredentialTimeline {
+		points, err := s.store.CredentialTimelineWithFilter(ctx, filter, granularity, location)
+		if err != nil {
+			return Response{}, err
+		}
+		response.CredentialTimeline = buildCredentialTimeline(points, granularity, location, prices)
 	}
 	if req.Include.APIKeyStats {
 		stats, err := s.store.APIKeyModelStatsWithFilter(ctx, filter)
@@ -1425,6 +1464,76 @@ func buildCredentialStats(stats []store.CredentialModelStat, prices map[string]s
 	return result
 }
 
+type credentialTimelineAccumulator struct {
+	point          CredentialTimelinePoint
+	latencySum     float64
+	latencySamples int64
+}
+
+func buildCredentialTimeline(points []store.CredentialTimelinePoint, granularity string, location *time.Location, prices map[string]store.ModelPrice) []CredentialTimelinePoint {
+	type key struct {
+		id       string
+		bucketMS int64
+	}
+	grouped := map[key]*credentialTimelineAccumulator{}
+	order := make([]key, 0, len(points))
+	for _, point := range points {
+		id := credentialTimelineGroupKey(point)
+		mapKey := key{id: id, bucketMS: point.BucketMS}
+		entry := grouped[mapKey]
+		if entry == nil {
+			entry = &credentialTimelineAccumulator{
+				point: CredentialTimelinePoint{
+					ID:                    id,
+					Label:                 credentialTimelineLabel(point),
+					AuthFileSnapshot:      point.AuthFileSnapshot,
+					AuthIndex:             point.AuthIndex,
+					Source:                point.Source,
+					SourceHash:            point.SourceHash,
+					AccountSnapshot:       point.AccountSnapshot,
+					AuthLabelSnapshot:     point.AuthLabelSnapshot,
+					AuthProviderSnapshot:  point.AuthProviderSnapshot,
+					AuthProjectIDSnapshot: point.AuthProjectIDSnapshot,
+					BucketMS:              point.BucketMS,
+					BucketLabel:           timelineLabel(point.BucketMS, granularity, location),
+				},
+			}
+			grouped[mapKey] = entry
+			order = append(order, mapKey)
+		}
+		fillCredentialTimelineSnapshots(&entry.point, point)
+		entry.point.Calls += point.Calls
+		entry.point.Tokens += point.Tokens
+		entry.point.TotalTokens += point.Tokens
+		entry.point.Success += point.Success
+		entry.point.Failure += point.Failure
+		entry.point.InputTokens += point.InputTokens
+		entry.point.OutputTokens += point.OutputTokens
+		entry.point.CachedTokens += point.CachedTokens
+		entry.point.CacheReadTokens += point.CacheReadTokens
+		entry.point.CacheCreationTokens += point.CacheCreationTokens
+		entry.point.ReasoningTokens += point.ReasoningTokens
+		entry.point.Cost += costForCredentialTimelinePoint(point, prices)
+		if point.AvgLatencyMS.Valid && point.LatencySamples > 0 {
+			entry.latencySum += point.AvgLatencyMS.Float64 * float64(point.LatencySamples)
+			entry.latencySamples += point.LatencySamples
+		}
+	}
+
+	result := make([]CredentialTimelinePoint, 0, len(order))
+	for _, mapKey := range order {
+		entry := grouped[mapKey]
+		if entry.latencySamples > 0 {
+			value := entry.latencySum / float64(entry.latencySamples)
+			entry.point.AvgLatencyMS = &value
+		}
+		entry.point.SuccessRate = ratio(entry.point.Success, entry.point.Calls)
+		entry.point.FailureRate = ratio(entry.point.Failure, entry.point.Calls)
+		result = append(result, entry.point)
+	}
+	return result
+}
+
 func buildAPIKeyStats(stats []store.APIKeyModelStat, prices map[string]store.ModelPrice) []APIKeyStatRow {
 	grouped := map[string]*apiKeyStatAccumulator{}
 	for _, stat := range stats {
@@ -1587,6 +1696,33 @@ func credentialGroupKey(stat store.CredentialModelStat) string {
 	return "-"
 }
 
+func credentialTimelineGroupKey(point store.CredentialTimelinePoint) string {
+	for _, value := range []string{point.ID, point.AuthFileSnapshot, point.AuthIndex, point.SourceHash, point.Source} {
+		trimmed := strings.TrimSpace(value)
+		if trimmed != "" {
+			return trimmed
+		}
+	}
+	return "-"
+}
+
+func credentialTimelineLabel(point store.CredentialTimelinePoint) string {
+	for _, value := range []string{
+		point.AuthLabelSnapshot,
+		point.AccountSnapshot,
+		point.AuthFileSnapshot,
+		point.Source,
+		point.AuthIndex,
+		point.ID,
+	} {
+		trimmed := strings.TrimSpace(value)
+		if trimmed != "" {
+			return trimmed
+		}
+	}
+	return "-"
+}
+
 func fillCredentialStatSnapshots(row *CredentialStatRow, stat store.CredentialModelStat) {
 	if row.AuthFileSnapshot == "" {
 		row.AuthFileSnapshot = stat.AuthFileSnapshot
@@ -1611,6 +1747,36 @@ func fillCredentialStatSnapshots(row *CredentialStatRow, stat store.CredentialMo
 	}
 	if row.AuthProjectIDSnapshot == "" {
 		row.AuthProjectIDSnapshot = stat.AuthProjectIDSnapshot
+	}
+}
+
+func fillCredentialTimelineSnapshots(row *CredentialTimelinePoint, point store.CredentialTimelinePoint) {
+	if row.Label == "" || row.Label == "-" {
+		row.Label = credentialTimelineLabel(point)
+	}
+	if row.AuthFileSnapshot == "" {
+		row.AuthFileSnapshot = point.AuthFileSnapshot
+	}
+	if row.AuthIndex == "" {
+		row.AuthIndex = point.AuthIndex
+	}
+	if row.Source == "" {
+		row.Source = point.Source
+	}
+	if row.SourceHash == "" {
+		row.SourceHash = point.SourceHash
+	}
+	if row.AccountSnapshot == "" {
+		row.AccountSnapshot = point.AccountSnapshot
+	}
+	if row.AuthLabelSnapshot == "" {
+		row.AuthLabelSnapshot = point.AuthLabelSnapshot
+	}
+	if row.AuthProviderSnapshot == "" {
+		row.AuthProviderSnapshot = point.AuthProviderSnapshot
+	}
+	if row.AuthProjectIDSnapshot == "" {
+		row.AuthProjectIDSnapshot = point.AuthProjectIDSnapshot
 	}
 }
 
@@ -1913,6 +2079,20 @@ func costForCredentialModelStat(stat store.CredentialModelStat, prices map[strin
 		CachedTokens:        stat.CachedTokens,
 		CacheReadTokens:     stat.CacheReadTokens,
 		CacheCreationTokens: stat.CacheCreationTokens,
+	}, prices)
+}
+
+func costForCredentialTimelinePoint(point store.CredentialTimelinePoint, prices map[string]store.ModelPrice) float64 {
+	model := point.BillingModel
+	if model == "" {
+		model = point.Model
+	}
+	return pricing.CostForModelWithServiceTier(model, point.ServiceTier, pricing.ModelTokens{
+		InputTokens:         point.InputTokens,
+		OutputTokens:        point.OutputTokens,
+		CachedTokens:        point.CachedTokens,
+		CacheReadTokens:     point.CacheReadTokens,
+		CacheCreationTokens: point.CacheCreationTokens,
 	}, prices)
 }
 
