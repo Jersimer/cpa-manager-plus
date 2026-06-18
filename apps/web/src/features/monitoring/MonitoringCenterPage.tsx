@@ -147,10 +147,13 @@ export function MonitoringCenterPage() {
   const initialMonitoringDrilldownFilters = useRef(
     (() => {
       const params = new URLSearchParams(location.search);
+      const minLatencyMs = Number(params.get('min_latency_ms'));
       return {
         authFile: params.get('auth_file')?.trim() || '',
         projectId: params.get('project_id')?.trim() || '',
         requestType: params.get('request_type')?.trim() || '',
+        minLatencyMs: Number.isFinite(minLatencyMs) && minLatencyMs > 0 ? minLatencyMs : undefined,
+        cacheStatus: params.get('cache_status')?.trim() || '',
       };
     })()
   );
@@ -201,6 +204,12 @@ export function MonitoringCenterPage() {
   );
   const [drilldownRequestType, setDrilldownRequestType] = useState(
     () => initialMonitoringDrilldownFilters.current.requestType
+  );
+  const [drilldownMinLatencyMs, setDrilldownMinLatencyMs] = useState(
+    () => initialMonitoringDrilldownFilters.current.minLatencyMs
+  );
+  const [drilldownCacheStatus, setDrilldownCacheStatus] = useState(
+    () => initialMonitoringDrilldownFilters.current.cacheStatus
   );
   const [expandedAccounts, setExpandedAccounts] = useState<Record<string, boolean>>({});
   const [expandedApiKeys, setExpandedApiKeys] = useState<Record<string, boolean>>({});
@@ -314,6 +323,8 @@ export function MonitoringCenterPage() {
       authFile: drilldownAuthFile || undefined,
       projectId: drilldownProjectId || undefined,
       requestType: drilldownRequestType || undefined,
+      minLatencyMs: drilldownMinLatencyMs,
+      cacheStatus: drilldownCacheStatus || undefined,
       model: selectedModel,
       channel: selectedChannel,
       apiKeyHash: selectedApiKeyHash,
@@ -321,6 +332,8 @@ export function MonitoringCenterPage() {
     }),
     [
       drilldownAuthFile,
+      drilldownCacheStatus,
+      drilldownMinLatencyMs,
       drilldownProjectId,
       drilldownRequestType,
       selectedAccount,
@@ -629,7 +642,9 @@ export function MonitoringCenterPage() {
     selectedStatus !== 'all' ||
     Boolean(drilldownAuthFile) ||
     Boolean(drilldownProjectId) ||
-    Boolean(drilldownRequestType);
+    Boolean(drilldownRequestType) ||
+    Boolean(drilldownMinLatencyMs) ||
+    Boolean(drilldownCacheStatus);
   const hasActiveDataFilter = hasSearchFilter || hasScopeFilter;
   const failedGroupCount = groupedRealtimeRows.filter((row) => row.failureCalls > 0).length;
   const failedOnlyActive = selectedStatus === 'failed';
@@ -749,6 +764,8 @@ export function MonitoringCenterPage() {
     setDrilldownAuthFile('');
     setDrilldownProjectId('');
     setDrilldownRequestType('');
+    setDrilldownMinLatencyMs(undefined);
+    setDrilldownCacheStatus('');
   }, []);
 
   const renderMonitoringEmptyState = () => (

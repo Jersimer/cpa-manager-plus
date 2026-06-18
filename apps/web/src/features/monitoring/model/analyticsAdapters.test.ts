@@ -220,6 +220,8 @@ describe('buildAnalyticsFilters', () => {
         authFile: 'codex-auth.json',
         projectId: 'project-1',
         requestType: 'codex',
+        minLatencyMs: 10_000,
+        cacheStatus: 'hit',
       },
       new Map(),
       []
@@ -229,6 +231,8 @@ describe('buildAnalyticsFilters', () => {
       auth_files: ['codex-auth.json'],
       project_ids: ['project-1'],
       request_types: ['codex'],
+      min_latency_ms: 10_000,
+      cache_status: 'hit',
     });
   });
 });

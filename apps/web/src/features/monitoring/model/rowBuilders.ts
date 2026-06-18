@@ -80,6 +80,18 @@ const normalizeScopeValue = (value: string | null | undefined) =>
     .trim()
     .toLowerCase();
 
+const hasCacheActivity = (
+  row: Pick<MonitoringEventRow, 'cachedTokens' | 'cacheReadTokens' | 'cacheCreationTokens'>,
+  mode: string
+) => {
+  const cachedTokens = row.cachedTokens || 0;
+  const cacheReadTokens = row.cacheReadTokens || 0;
+  const cacheCreationTokens = row.cacheCreationTokens || 0;
+  if (mode === 'read') return cacheReadTokens > 0;
+  if (mode === 'creation') return cacheCreationTokens > 0;
+  return cachedTokens > 0 || cacheReadTokens > 0 || cacheCreationTokens > 0;
+};
+
 export const buildScopeFilteredRows = (
   rows: MonitoringEventRow[],
   scopeFilters?: MonitoringScopeFilters
@@ -99,6 +111,11 @@ export const buildScopeFilteredRows = (
   const channel = normalizeScopeValue(scopeFilters.channel);
   const apiKeyHash = normalizeScopeValue(scopeFilters.apiKeyHash);
   const status = scopeFilters.status;
+  const minLatencyMs =
+    typeof scopeFilters.minLatencyMs === 'number' && scopeFilters.minLatencyMs > 0
+      ? scopeFilters.minLatencyMs
+      : null;
+  const cacheStatus = normalizeScopeValue(scopeFilters.cacheStatus);
 
   return rows.filter((row) => {
     if (isActiveScopeFilterValue(scopeFilters.account)) {
@@ -172,6 +189,17 @@ export const buildScopeFilteredRows = (
 
     if (status === 'failed' && !row.failed) return false;
     if (status === 'success' && row.failed) return false;
+    if (minLatencyMs !== null && (row.latencyMs === null || row.latencyMs < minLatencyMs)) {
+      return false;
+    }
+    if (cacheStatus === 'hit' && !hasCacheActivity(row, cacheStatus)) return false;
+    if (cacheStatus === 'miss' && hasCacheActivity(row, cacheStatus)) return false;
+    if (
+      (cacheStatus === 'read' || cacheStatus === 'creation') &&
+      !hasCacheActivity(row, cacheStatus)
+    ) {
+      return false;
+    }
 
     return true;
   });

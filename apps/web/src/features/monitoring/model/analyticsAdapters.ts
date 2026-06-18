@@ -277,6 +277,12 @@ export const buildAnalyticsFilters = (
   } else if (scopeFilters.status === 'failed') {
     filters.failed_only = true;
   }
+  if (typeof scopeFilters.minLatencyMs === 'number' && scopeFilters.minLatencyMs > 0) {
+    filters.min_latency_ms = scopeFilters.minLatencyMs;
+  }
+  if (isActiveFilterValue(scopeFilters.cacheStatus)) {
+    filters.cache_status = scopeFilters.cacheStatus!.trim();
+  }
 
   let authIndices: Set<string> | null = null;
   if (isActiveFilterValue(scopeFilters.account)) {

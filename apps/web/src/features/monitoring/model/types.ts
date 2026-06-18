@@ -340,6 +340,8 @@ export interface MonitoringScopeFilters {
   channel?: string;
   apiKeyHash?: string;
   status?: 'all' | 'success' | 'failed';
+  minLatencyMs?: number;
+  cacheStatus?: string;
 }
 
 export interface UseMonitoringDataParams {

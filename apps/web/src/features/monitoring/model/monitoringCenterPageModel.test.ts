@@ -151,7 +151,7 @@ describe('monitoringCenterPageModel filter options', () => {
       searchInput: 'retained search',
     };
     const state = buildMonitoringInitialStateFromQuery(
-      '?from_ms=1780000000000&to_ms=1780003600000&model=gpt-4o&api_key_hash=abcdef1234&status=failed&provider=OpenAI&auth_file=codex-auth.json&project_id=project-1&request_type=codex',
+      '?from_ms=1780000000000&to_ms=1780003600000&model=gpt-4o&api_key_hash=abcdef1234&status=failed&provider=OpenAI&auth_file=codex-auth.json&project_id=project-1&request_type=codex&search=req-42&min_latency_ms=10000&cache_status=hit',
       initialState
     );
 
@@ -162,7 +162,7 @@ describe('monitoringCenterPageModel filter options', () => {
       selectedApiKeyHash: 'abcdef1234',
       selectedStatus: 'failed',
       selectedProvider: 'OpenAI',
-      searchInput: 'retained search',
+      searchInput: 'req-42',
     });
     expect(state.customStartInput).toBeTruthy();
     expect(state.customEndInput).toBeTruthy();

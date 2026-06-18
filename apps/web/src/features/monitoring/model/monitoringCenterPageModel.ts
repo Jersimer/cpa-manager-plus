@@ -149,8 +149,13 @@ export const buildMonitoringInitialStateFromQuery = (
   const authFile = params.get('auth_file')?.trim();
   const projectId = params.get('project_id')?.trim();
   const requestType = params.get('request_type')?.trim();
+  const searchQuery = params.get('search')?.trim();
+  const minLatencyMs = params.get('min_latency_ms')?.trim();
+  const cacheStatus = params.get('cache_status')?.trim();
   const hasRange = fromMs !== null && toMs !== null && fromMs < toMs;
-  const hasStructuredScopeFilter = Boolean(authFile || projectId || requestType);
+  const hasStructuredScopeFilter = Boolean(
+    authFile || projectId || requestType || minLatencyMs || cacheStatus
+  );
 
   return {
     ...state,
@@ -166,9 +171,9 @@ export const buildMonitoringInitialStateFromQuery = (
       status === 'success' || status === 'failed' || status === 'all'
         ? status
         : state.selectedStatus,
-    searchInput: state.searchInput,
+    searchInput: searchQuery || state.searchInput,
     activeDataTab:
-      hasRange || model || apiKeyHash || status || provider || hasStructuredScopeFilter
+      hasRange || model || apiKeyHash || status || provider || searchQuery || hasStructuredScopeFilter
         ? 'realtime'
         : state.activeDataTab,
   };
