@@ -512,10 +512,6 @@ export function AuthFilesPage() {
   );
 
   const loadQuotaCooldowns = useCallback(async () => {
-    if (!managerServiceBase) {
-      setQuotaCooldowns((current) => (current.size === 0 ? current : new Map()));
-      return;
-    }
     try {
       const items = await usageServiceApi.getActiveQuotaCooldowns(managerServiceBase, managementKey);
       const next = new Map<string, QuotaCooldownInfo>();
@@ -531,6 +527,15 @@ export function AuthFilesPage() {
       // The cooldown badge is a derived hint; fail silently and keep the last known state.
     }
   }, [managerServiceBase, managementKey]);
+
+  // Clear stale cooldowns the moment the Manager Server becomes unavailable.
+  // The loader's call sites all guard on managerServiceBase, so without this
+  // the derived badge would linger after credentials change, the service goes
+  // down, or feature availability flips off.
+  useEffect(() => {
+    if (managerServiceBase) return;
+    setQuotaCooldowns((current) => (current.size === 0 ? current : new Map()));
+  }, [managerServiceBase]);
 
   useEffect(() => {
     if (!isCurrentLayer || !managerServiceBase) return;
